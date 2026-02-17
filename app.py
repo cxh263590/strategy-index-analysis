@@ -6,8 +6,8 @@ import logging
 import os
 from datetime import datetime
 
-LOG_DIR = "/home/cxh263590/cxh/test/logs"
-if os.path.exists(LOG_DIR) or os.access(os.path.dirname(LOG_DIR), os.W_OK):
+LOG_DIR = os.environ.get("LOG_DIR", "./logs")
+if os.path.exists(LOG_DIR) or os.access(os.path.dirname(LOG_DIR) or ".", os.W_OK):
     os.makedirs(LOG_DIR, exist_ok=True)
     logging.basicConfig(
         filename=os.path.join(LOG_DIR, "app.log"),
