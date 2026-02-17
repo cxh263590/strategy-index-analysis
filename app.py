@@ -1,0 +1,155 @@
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import psycopg2
+import logging
+import os
+from datetime import datetime
+
+LOG_DIR = "/home/cxh263590/cxh/test/logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logging.basicConfig(
+    filename=os.path.join(LOG_DIR, "app.log"),
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    encoding='utf-8'
+)
+
+def log_page_access():
+    logging.info("=" * 50)
+    logging.info(f"Page accessed - Time: {datetime.now()}")
+    logging.info("=" * 50)
+
+def log_function_call(func_name, **kwargs):
+    params = ", ".join([f"{k}={v}" for k, v in kwargs.items()])
+    logging.info(f"Function called: {func_name}({params})")
+
+log_page_access()
+
+st.title("📊 策略指数分析平台")
+
+@st.cache_data
+def load_data(strategy_name):
+    log_function_call("load_data", strategy_name=strategy_name)
+    conn = psycopg2.connect(
+        host=st.secrets["postgres"]["host"],
+        port=int(st.secrets["postgres"]["port"]),
+        user=st.secrets["postgres"]["user"],
+        password=st.secrets["postgres"]["password"],
+        database=st.secrets["postgres"]["database"]
+    )
+    query = "SELECT date, net_value FROM strategy_data WHERE strategy_name = %s ORDER BY date"
+    df = pd.read_sql(query, conn, params=(strategy_name,))
+    conn.close()
+    return df
+
+@st.cache_data
+def load_all_strategies():
+    log_function_call("load_all_strategies")
+    conn = psycopg2.connect(
+        host=st.secrets["postgres"]["host"],
+        port=int(st.secrets["postgres"]["port"]),
+        user=st.secrets["postgres"]["user"],
+        password=st.secrets["postgres"]["password"],
+        database=st.secrets["postgres"]["database"]
+    )
+    query = "SELECT DISTINCT strategy_name FROM strategy_data ORDER BY strategy_name"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df['strategy_name'].tolist()
+
+st.title("📊 策略指数分析平台")
+
+strategies = load_all_strategies()
+
+st.sidebar.header("选择策略")
+selected_strategy = st.sidebar.selectbox("策略", strategies)
+log_function_call("sidebar_strategy_selection", selected_strategy=selected_strategy)
+
+def calc_stats(data):
+    log_function_call("calc_stats", data_rows=len(data))
+    series = data['net_value'].dropna()
+    if len(series) < 2:
+        return None
+    
+    start_val = series.iloc[0]
+    end_val = series.iloc[-1]
+    returns = series.pct_change().dropna()
+    
+    days = len(returns)
+    annual_return = (end_val / start_val) ** (252 / max(days, 1)) - 1
+    
+    cumulative = series / start_val
+    running_max = cumulative.cummax()
+    drawdown = (cumulative - running_max) / running_max
+    max_dd = drawdown.min()
+    
+    start_date = data['date'].dropna().iloc[0]
+    
+    return {
+        'start_date': start_date,
+        'annual_return': annual_return,
+        'max_drawdown': max_dd
+    }
+
+st.subheader(f"{selected_strategy} 走势")
+
+data = load_data(selected_strategy)
+data['date'] = pd.to_datetime(data['date'])
+data = data.sort_values('date')
+
+dates = data['date'].dt.strftime('%Y-%m-%d').tolist()
+
+col_date1, col_date2 = st.columns(2)
+with col_date1:
+    start_idx = 0
+    start_date_sel = st.selectbox("起始日期", range(len(dates)), index=start_idx, 
+                                   format_func=lambda x: dates[x], key="start_date")
+with col_date2:
+    end_idx = len(dates) - 1
+    end_date_sel = st.selectbox("结束日期", range(len(dates)), index=end_idx,
+                                 format_func=lambda x: dates[x], key="end_date")
+
+log_function_call("user_selection", selected_strategy=selected_strategy, 
+                  start_date=dates[start_date_sel], end_date=dates[end_date_sel])
+
+if start_date_sel > end_date_sel:
+    st.error("起始日期不能晚于结束日期")
+    st.stop()
+
+filtered_data = data.iloc[start_date_sel:end_date_sel+1]
+
+stats = calc_stats(filtered_data)
+
+if stats:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("年化收益率", f"{stats['annual_return']:.2%}")
+    col2.metric("最大回撤", f"{stats['max_drawdown']:.2%}")
+    col3.metric("起始日期", str(stats['start_date'])[:10])
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=filtered_data['date'],
+    y=filtered_data['net_value'],
+    mode='lines',
+    name=selected_strategy,
+    line=dict(color='#1f77b4', width=2)
+))
+
+fig.update_layout(
+    xaxis_title="日期",
+    yaxis_title="净值",
+    hovermode="x unified",
+    height=500
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("数据明细")
+st.dataframe(filtered_data, use_container_width=True)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("目录")
+for s in strategies:
+    st.sidebar.markdown(f"- {s}")
