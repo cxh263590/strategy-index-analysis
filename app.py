@@ -60,15 +60,6 @@ def load_all_strategies():
     conn.close()
     return df['strategy_name'].tolist()
 
-@st.cache_data
-def load_all_data():
-    log_function_call("load_all_data")
-    conn = get_db_connection()
-    query = "SELECT date, strategy_name, net_value FROM strategy_data ORDER BY date, strategy_name"
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
 def calc_stats(data):
     log_function_call("calc_stats", data_rows=len(data))
     series = data['net_value'].dropna()
@@ -95,16 +86,16 @@ def calc_stats(data):
         'max_drawdown': max_dd
     }
 
-def calc_period_return(df, strategy, days):
-    strategy_data = df[df['strategy_name'] == strategy].copy()
-    strategy_data['date'] = pd.to_datetime(strategy_data['date'])
-    strategy_data = strategy_data.sort_values('date')
+def calc_period_return(data, days):
+    data = data.copy()
+    data['date'] = pd.to_datetime(data['date'])
+    data = data.sort_values('date')
     
-    if len(strategy_data) < 2:
+    if len(data) < 2:
         return None
     
-    cutoff_date = strategy_data['date'].max() - timedelta(days=days)
-    recent_data = strategy_data[strategy_data['date'] >= cutoff_date]
+    cutoff_date = data['date'].max() - timedelta(days=days)
+    recent_data = data[data['date'] >= cutoff_date]
     
     if len(recent_data) < 2:
         return None
@@ -191,16 +182,14 @@ elif page == "策略统计":
     st.title("📊 策略收益统计")
     
     with st.spinner("加载数据中..."):
-        df = load_all_data()
-        df['date'] = pd.to_datetime(df['date'])
-        
         strategies = load_all_strategies()
         
         results = []
         for s in strategies:
-            week_return = calc_period_return(df, s, 7)
-            year_return = calc_period_return(df, s, 365)
-            two_year_return = calc_period_return(df, s, 730)
+            data = load_data(s)
+            week_return = calc_period_return(data, 7)
+            year_return = calc_period_return(data, 365)
+            two_year_return = calc_period_return(data, 730)
             
             results.append({
                 '策略': s,
