@@ -7,14 +7,20 @@ import os
 from datetime import datetime
 
 LOG_DIR = "/home/cxh263590/cxh/test/logs"
-os.makedirs(LOG_DIR, exist_ok=True)
-
-logging.basicConfig(
-    filename=os.path.join(LOG_DIR, "app.log"),
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    encoding='utf-8'
-)
+if os.path.exists(LOG_DIR) or os.access(os.path.dirname(LOG_DIR), os.W_OK):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    logging.basicConfig(
+        filename=os.path.join(LOG_DIR, "app.log"),
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        encoding='utf-8'
+    )
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        encoding='utf-8'
+    )
 
 def log_page_access():
     logging.info("=" * 50)
